@@ -1,0 +1,28 @@
+descriptor-schema-version: "2.15"
+info:
+  name: iox_aarch64_gps
+  version: "0.6"
+app:
+  cpuarch: aarch64 
+  env:
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  resources:
+    cpu: "250"
+    memory: "384"
+    disk: "200"
+    network:
+        - 
+          interface-name: eth0
+    devices:
+        -
+          label: IR_GPS
+          type: serial
+          usage: "GPS"
+    profile: custom
+  startup:
+    rootfs: rootfs.tar
+    target:
+    - /bin/sh
+    - -c
+    - /startup.sh
+  type: docker
