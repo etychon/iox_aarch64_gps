@@ -76,6 +76,18 @@ App id                                   State
 gps                                      RUNNING
 ```
 
+## IOx app upgrade with CLI
+
+Once you have changed your code and downloaded a new version on your app on the router flash, this can be easily upgraded the the new version with one single line:
+
+`router# app-hosting upgrade appid gps package flash:iox_aarch64_gps-0.7.tar.gz`
+
+This will stop the app, upgrade the package, activate and start the app. This operation will take a couple of minutes so be patient and look for the console message confirmation that will look like this:
+
+```sh
+Jul  5 14:28:51.019: %IOXCAF-6-UPGRADE_MSG: R0/0: ioxman: app-hosting: gps: Upgraded Successfully
+```
+
 ## IOx app installation with Local Manager
 
 TBD
