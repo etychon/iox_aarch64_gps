@@ -91,6 +91,11 @@ Steps to subscribe to your data stream are:
 1. The red dot should become green and say "connected"
 1. In "Subscriptions" click "Add New Topic Subscription"
 1. As a topic enter `csco/ir1800/<serial>` where `<serial>` is your router serial nomber. For instance "`csco/ir1800/FCW2445P8JC`". You can find your serial number with the CLI command "`show license udi`"
+1. Click the "Subscribe" button 
+
+Here how it should look like:
+
+<img src="images/hivemq-client-animated-screenshot.gif" width=400>
 
 ## Credits 
 
