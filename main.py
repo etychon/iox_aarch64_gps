@@ -5,6 +5,7 @@ import pynmea2
 import os
 import logging
 import threading
+import requests
 from collections import deque 
 
 from   logging.handlers import RotatingFileHandler
@@ -45,11 +46,6 @@ class dequeManager:
         return len(self.deqList[q])
     def maxlen(self, q):
         return self.deqList[q].maxlen()
-
-q = dequeManager()
-
-# x.create_new_queue('mqtt', QUEUE_SIZE)
-# x.add_to_all_q('hello')
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if (rc == 0):
@@ -133,6 +129,7 @@ class ProducerThread(threading.Thread):
                     tempPayload['location'] = locationData
                     # enqueue this payload to be sent - if queue is full oldest items is dropped
                     q.add_to_all_q(tempPayload)
+            time.sleep(LOOP_INTERVAL)
         return
 
 '''
@@ -164,6 +161,37 @@ class ConsumerMQTTThread(threading.Thread):
                     tempJSON = json.dumps(tempPayload, indent=4)
                     logger.debug('Publishing message from QUEUE -> MQTT')
                     mqttClient.publish(topic,tempJSON,qos=MQTT_QOS)
+            time.sleep(1)
+        return
+
+
+class ConsumerHTTPThread(threading.Thread):
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs=None, verbose=None):
+        super(ConsumerHTTPThread,self).__init__()
+        self.target = target
+        self.name = name
+        self.qname = 'http'
+        q.create_new_queue(self.qname, QUEUE_SIZE)
+        return
+
+    def run(self):
+        while True:
+            if q.len(self.qname) > 0:
+                locationData = q.pop(self.qname)
+                logger.debug('Consuming {} from queue'.format(str(locationData)))
+                timestamp = int(time.time() * 1000)
+                tempPayload = {}
+                tempPayload['timestamp'] = timestamp
+                tempPayload['identifier'] = sn
+                if (locationData.get('gps_qual', 0) !=0 or ALWAYS_REPORT):
+                    tempPayload['location'] = locationData
+                    tempJSON = json.dumps(tempPayload, indent=4)
+                    url = 'http://'+sn+'.requestcatcher.com/gps'
+                    logger.debug('Publishing message to HTTP: {}'.format(url))
+                    x = requests.post(url, data=tempJSON)
+                    logger.debug(x.text)
+                    # mqttClient.publish(topic,tempJSON,qos=MQTT_QOS)
             time.sleep(1)
         return
 
@@ -238,18 +266,23 @@ if __name__ == '__main__':
             logger.debug('Having trouble connecting to MQTT data broker.  Will try again.')
             time.sleep(5)
 
+    # start the Paho MQTT pub/sub main process
     mqttClient.loop_start()
 
     # need to add error handling
     gpsser = open(IR_GPS, "r", encoding='utf-8')
+
+    # Instantiate the multi queue management
+    q = dequeManager()
 
     '''
       The producer will gather GPS data and add them to deque "q"
       The Consumers will watch the queue, and will publish data in the queue
     '''
     p = ProducerThread(name='producer')
-    c = ConsumerMQTTThread(name='consumer')
-
+    c = ConsumerMQTTThread(name='consumer_mqtt')
+    h = ConsumerHTTPThread(name='consumer_http')
+    
     p.start()
     c.start()
-
+    h.start()

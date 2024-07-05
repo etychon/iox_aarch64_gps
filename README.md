@@ -12,11 +12,12 @@ This code is based on an initial work done by Kevin Holcomb (Cisco).
 * Added support for local router timestamp as well as GPS-sourced timestamped
 * Added a build process that will automatically increate the IOx app version number for each build (build.sh)
 * Reduce app size from 40MB to 23MB by disabling APK caching, and removing what's not needed
-
+* Queue system will store the last position fix while unable to send data (store and forward)
+* Implementd multi-queue mechanism to have multiple independant consumers active (ie: MQTT and HTTP)
 
 ## Todo or Unfinished
-* Queue system will store the last position fix while unable to send data (store and forward)
-* Implement multi-queue mechanism to have multiple independant consumers active (ie: MQTT and HTTP and Splunk)
+* More testing
+* More documentation
 
 ## Building the Code
 
@@ -55,7 +56,7 @@ app-hosting appid gps
   app-vnic gateway0 virtualportgroup 0 guest-interface 0
   app-resource docker
     run-opts 1 "-e DEBUG_VERBOSE=1"
-    run-opts 2 "-e IR_GPS=/dev/NMEA0"
+    run-opts 2 "-e IR_GPS=/dev/ttyNMEA0"
     run-opts 3 "--device /dev/ttyNMEA0:/dev/ttyNMEA0"
 ```
 
@@ -81,7 +82,9 @@ TBD
 
 ## Getting the GPS coordinates
 
-By default the app will publish the data with MQTT to a public broker
+### With MQTT
+
+If the MQTT consumer is enabled, the app will publish the data with MQTT to a public MQTT broker.
 
 You can check the published by connecting to this broker using an MQTT client, or a web based version such as: https://www.hivemq.com/demos/websocket-client/
 
@@ -96,6 +99,16 @@ Steps to subscribe to your data stream are:
 Here how it should look like:
 
 <img src="images/hivemq-client-animated-screenshot.gif" width=400>
+
+### With HTTP
+
+If the HTTP consumer is enabled, the app will publish the data with HTTP to a public website.
+
+To see the GPS coordinated go to `https://<serial>.requestcatcher.com/` where `<serial>` is your router serial number.  (for example: `https://fcw2445p8jc.requestcatcher.com/`)
+
+This should look like this:
+
+<img src="images/requestcatcher-screeshot.png" width=400>
 
 ## Credits 
 
