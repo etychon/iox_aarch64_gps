@@ -2,3 +2,7 @@
 iox_aarch64_gps-*.tar.gz
 .package.metadata
 iox-router-loc.log
+NMEA_sample
+iox-router-loc.log.*
+local_run.sh
+start-capturing-nmea.sh
