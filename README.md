@@ -1,13 +1,15 @@
 # iox_aarch64_gps
 
-This code will build a Cisco IOx application that runs on a Cisco router such as Cisco IR1101, or Cisco IR1800, and gathers GPS information from a cellular module. It then publishes the GPS information to an MQTT broker. MQTT is highly efficient as it uses a pub/sub model on a broker. By default the public broker `broker.hivemq.com` is used, but this can be changed at run time.
+This code will build a Cisco IOx application that gathers GPS information from a cellular module. It runs on a Cisco routers such as Cisco IR1101, or Cisco IR1800, and publishes the GPS information to one or multiple destinations. Currently MQTT and HTTP are supported.
 
-This app is written in Python and uses multi-threaded producer/consumer and a deque (double-ended queue) system as a store-and-forward when network is not available.
+MQTT is highly efficient as it uses a pub/sub model on a broker. By default the public broker `broker.hivemq.com` is used, but this can be changed at run time.
 
-This code is based on an initial work done by Kevin Holcomb (Cisco).
+HTTP is less efficient unless you're planning to push the coordinated to only one place, such as a remote application.
+
+This IOx app is written in Python and uses multi-threaded, single producer / multiple consumers using a dictionary of deque (double-ended queue) system. Queues are used as a store-and-forward when network is not available.
 
 ## List of Changes
-* Using /dev/NMEA0 device as a normal file and not a serial device with pySerial.
+* Using /dev/NMEA0 device as a normal file and not a serial device with pySerial. Not sure why, but this is a lot more reliable.
 * Split the monolithic main code into two threads - the producer gets the GPS data and add it to the queue, the consumer watch the queue and publishes the data to MQTT 
 * Added support for local router timestamp as well as GPS-sourced timestamped
 * Added a build process that will automatically increate the IOx app version number for each build (build.sh)
