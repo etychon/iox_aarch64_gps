@@ -12,7 +12,44 @@ from   logging.handlers import RotatingFileHandler
 # total amount of GPS position we can store when publishing 
 # is not possible (ie: because of network outage)
 QUEUE_SIZE = 100
-q = deque(maxlen = QUEUE_SIZE)
+
+'''
+    This class is responsible to manage multiple queues.
+    Each queue will hold data to be sent by one or multiple consumers.
+    Each consumer will consome from its queue.
+    Producer will produce in all queues.
+    This allows fully asynchronous operation as each consumer will 
+    consume and retry at its own rate.
+'''
+class dequeManager:
+    def __init__(self):
+        self.deqList = {}
+    # returns all elements in all queues 
+    def dumpall(self):
+        return(self.deqList)
+    # create a new q with name qname and max length maxlen
+    def create_new_queue(self, qname, maxlen):
+        self.deqList[qname] = deque(maxlen = maxlen)
+    # add element to the right of all queues
+    def add_to_all_q(self, data):
+        for q in self.deqList:
+            self.deqList[q].appendleft(data)
+    # remove element from the left of the queue q
+    def pop(self, q):
+        if self.len(q) > 0:
+            return self.deqList[q].popleft()
+        else:
+            return None
+    # return the number of elements in queue q
+    def len(self, q):
+        return len(self.deqList[q])
+    def maxlen(self, q):
+        return self.deqList[q].maxlen()
+
+q = dequeManager()
+
+# x.create_new_queue('mqtt', QUEUE_SIZE)
+# x.add_to_all_q('hello')
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if (rc == 0):
@@ -95,8 +132,7 @@ class ProducerThread(threading.Thread):
                 if (locationData.get('gps_qual', 0) !=0 or ALWAYS_REPORT):
                     tempPayload['location'] = locationData
                     # enqueue this payload to be sent - if queue is full oldest items is dropped
-                    q.appendleft(tempPayload)
-                    logger.debug('Queue size: {}/{}'.format(len(q), q.maxlen))
+                    q.add_to_all_q(tempPayload)
         return
 
 '''
@@ -110,12 +146,14 @@ class ConsumerMQTTThread(threading.Thread):
         super(ConsumerMQTTThread,self).__init__()
         self.target = target
         self.name = name
+        self.qname = 'mqtt'
+        q.create_new_queue(self.qname, QUEUE_SIZE)
         return
 
     def run(self):
         while True:
-            if len(q) > 0:
-                locationData = q.popleft()
+            if q.len(self.qname) > 0:
+                locationData = q.pop(self.qname)
                 logger.debug('Consuming {} from queue'.format(str(locationData)))
                 timestamp = int(time.time() * 1000)
                 tempPayload = {}
