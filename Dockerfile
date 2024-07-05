@@ -10,7 +10,7 @@ RUN	apk update && \
 FROM arm64v8/alpine:3.15 AS prod-stage
 
 RUN     apk update && \
-        apk add python3 vim
+        apk add python3
 
 COPY --from=build-stage /usr/lib/python3.9/site-packages /usr/lib/python3.9/site-packages
 

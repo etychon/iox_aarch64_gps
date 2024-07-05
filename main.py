@@ -30,7 +30,9 @@ def ReqLocation (ser):
     logger.debug('Looking for location information')
 
     # move pointer to end of file to have fresh data 
-    ser.seek(0, 2)
+    # seek() cannot be used as /dev/ttyNMEA0 will be non-seekable
+    # will use read to discard all data and get fresh one
+    ser.read()
 
     startTime = time.time()
     while ((time.time() - startTime) < (reqTimeout)):

@@ -25,7 +25,7 @@ fi
 rm -f iox_aarch64_gps-*.tar.gz
 
 # Build a version of the Docker image
-docker build -t iox_aarch64_gps .
+docker build -t iox_aarch64_gps:latest .
 
 # Package with IOx
-ioxclient docker package iox_aarch64_gps . --auto --use-targz -n iox_aarch64_gps-${VERSION}
+ioxclient docker package iox_aarch64_gps:latest . --auto --use-targz -n iox_aarch64_gps-${VERSION}
