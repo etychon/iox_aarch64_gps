@@ -16,6 +16,10 @@ This code is based on an initial work by Kevin Holcomb.
 
 For example on a Cisco IR1800 one can use this app in CLI mode. First download the IOx app on the router bootflash using your favourite method.
 
+For example using SCP:
+
+`router# copy scp://user@192.168.2.3/cisco/iox_aarch64_gps/iox_aarch64_gps-0.7.tar.gz bootflash:`
+
 Install the app in exec mode:
 
 `router# app-hosting install appid gps package flash:iox_aarch64_gps-0.7.tar.gz`
