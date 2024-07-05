@@ -18,6 +18,8 @@ This code is based on an initial work done by Kevin Holcomb (Cisco).
 ## Todo or Unfinished
 * More testing
 * More documentation
+* Add parameters to package_config.ini to customize HTTP consumer
+* Add parameters to package_config.ini to enable/disable individual consumers
 
 ## Building the Code
 
