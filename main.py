@@ -59,6 +59,13 @@ def ReqLocation (ser):
     logger.debug('Failed to receive location data; giving up')
     return None
 
+'''
+  This class will gather the GPS data from the cellular module
+  It will use the serial port defined in env variable IR_GPS
+  The serial port is treated as a file and already open in __main__ block
+  It appends the GPS coords to the left of the deque (double-ended queue)
+  Appending items to a deque is a thread-safe operation, no lock needed
+'''
 class ProducerThread(threading.Thread):
     def __init__(self, group=None, target=None, name=None,
                  args=(), kwargs=None, verbose=None):
@@ -86,12 +93,15 @@ class ProducerThread(threading.Thread):
                 if (locationData.get('gps_qual', 0) !=0 or ALWAYS_REPORT):
                     tempPayload['location'] = locationData
                     # enqueue this payload to be sent - if queue is full oldest items is dropped
-                    q.append(tempPayload)
+                    q.appendleft(tempPayload)
                     logger.debug('Queue size: {}/{}'.format(len(q), q.maxlen))
-
-
         return
 
+'''
+  This class will watch the deque (double-ended queue) for new entries
+  If found, it takes it from the left on the deque (oldest)
+  As a reminder, producer adds new values to the right of the deque
+'''
 class ConsumerMQTTThread(threading.Thread):
     def __init__(self, group=None, target=None, name=None,
                  args=(), kwargs=None, verbose=None):
@@ -103,7 +113,7 @@ class ConsumerMQTTThread(threading.Thread):
     def run(self):
         while True:
             if len(q) > 0:
-                locationData = q.pop()
+                locationData = q.popleft()
                 logger.debug('Consuming {} from queue'.format(str(locationData)))
                 timestamp = int(time.time() * 1000)
                 tempPayload = {}

@@ -1,7 +1,7 @@
 descriptor-schema-version: "2.15"
 info:
   name: iox_aarch64_gps
-  version: "0.6"
+  version: "0.9"
 app:
   cpuarch: aarch64 
   env:
