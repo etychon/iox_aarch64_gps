@@ -126,6 +126,42 @@ This should look like this:
 
 <img src="images/requestcatcher-screeshot.png" width=400>
 
+## Adding your own consumer
+
+Say you want to export data using another method not provider by this app: you're in luck, we have made that super easy! 
+
+Steps are as follow:
+
+1. You need to write your own class that will be responsible to pull data from the queue and publish it to the destination and method of your choice
+2. The class will need to register with the queues so that new data points are being publish in your class dedicated queue
+3. The class will need to be instanciated in the `__main__` section.
+
+For example, let's create a new class called "Acme" to publish data somewere. Let's create the class, initialize the basic function and register ourselves in the queue management system:
+
+````python
+class ConsumerAcmeThread(threading.Thread):
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs=None, verbose=None):
+        super(ConsumerAcmeThread,self).__init__()
+        self.target = target
+        self.name = name
+        self.qname = 'acme'
+        q.create_new_queue(self.qname, QUEUE_SIZE)
+        return
+````
+
+Create a new method called `run()` that will monitor the queue, and every time there is data in the queue, take it out and publish it. The publishing itself is outside the scope of this explanation, but all you have to to is to take the string `locationData` and publish it to the destination of your choice.
+
+```python
+    def run(self):
+        while True:
+            if q.len(self.qname) > 0:
+                locationData = q.pop(self.qname)
+                // push locationData where you want
+            time.sleep(1)
+        return
+  ```
+
 ## Credits 
 
 This code is based on an initial work done by Kevin Holcomb (Cisco).
