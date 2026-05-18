@@ -14,18 +14,19 @@ then
   echo "Upgrading version: ${OLDVERSION} -> ${VERSION}"
   # store the new version number
   echo ${VERSION} > VERSION
-  # Change the package.yaml to reflect the version
-  sed -i "/^\([[:space:]]*version: \).*/s//\1\"$VERSION\"/" package.yaml
 else
   # do not change version number
   VERSION=$OLDVERSION
 fi
 
+# Keep package.yaml in sync with VERSION
+sed -i "/^\([[:space:]]*version: \).*/s//\1\"$VERSION\"/" package.yaml
+
 # delete older versions
 rm -f iox_aarch64_gps-*.tar.gz
 
 # Build a version of the Docker image
-docker build -t iox_aarch64_gps:latest .
+docker build --platform linux/arm64 -t iox_aarch64_gps:latest .
 
 # Package with IOx
 ioxclient docker package iox_aarch64_gps:latest . --auto --use-targz -n iox_aarch64_gps-${VERSION}

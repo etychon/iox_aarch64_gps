@@ -1,59 +1,119 @@
 # iox_aarch64_gps
 
-This code will build a Cisco IOx application that gathers GPS information from a cellular module. It runs on a Cisco routers such as Cisco IR1101, or Cisco IR1800, and publishes the GPS information to one or multiple destinations. Currently MQTT and HTTP are supported.
+This code builds a Cisco IOx application that gathers GPS information from a cellular module. It runs on Cisco routers such as the Cisco IR1101 or Cisco IR1800, and publishes GPS information to one or more destinations. MQTT and HTTP are supported.
 
-MQTT is highly efficient as it uses a pub/sub model on a broker. By default the public broker `broker.hivemq.com` is used, but this can be changed at run time.
+MQTT is efficient because it uses a pub/sub model on a broker. By default the public broker `broker.hivemq.com` is used, but this can be changed at runtime via `package_config.ini` or environment variables.
 
-HTTP is less efficient unless you're planning to push the coordinated to only one place, such as a remote application.
+HTTP is less efficient unless you only need to push coordinates to a single HTTP endpoint.
 
-This IOx app is written in Python and uses multi-threaded, single producer / multiple consumers using a dictionary of deque (double-ended queue) system. Queues are used as a store-and-forward when network is not available.
+This IOx app is written in Python and uses a multi-threaded, single-producer / multiple-consumer design with a dictionary of `deque` queues. Queues provide store-and-forward when the network is unavailable.
 
 ## List of Changes
-* Using /dev/NMEA0 device as a normal file and not a serial device with pySerial. Not sure why, but this is a lot more reliable.
-* Split the monolithic main code into two threads - the producer gets the GPS data and add it to the queue, the consumer watch the queue and publishes the data to MQTT 
-* Added support for local router timestamp as well as GPS-sourced timestamped
-* Added a build process that will automatically increate the IOx app version number for each build (build.sh)
-* Reduce app size from 40MB to 23MB by disabling APK caching, and removing what's not needed
-* Queue system will store the last position fix while unable to send data (store and forward)
-* Implementd multi-queue mechanism to have multiple independant consumers active (ie: MQTT and HTTP)
+
+* Read the GPS device (`IR_GPS`, typically `/dev/ttyNMEA0`) as a normal file instead of using pySerial
+* Split the monolithic main code into producer and consumer threads
+* Added support for local router timestamp as well as GPS-sourced timestamps
+* Build script (`build.sh`) packages the app; optional auto-increment via `AUTO_INC_VERSION=1`
+* Reduced app size by disabling APK caching and trimming the image
+* Queue system stores the last position fixes while unable to send data (store and forward)
+* Multi-queue mechanism for independent consumers (MQTT and HTTP)
 
 ## Todo or Unfinished
+
 * More testing
-* More documentation
-* Add parameters to package_config.ini to customize HTTP consumer
-* Add parameters to package_config.ini to enable/disable individual consumers
+* More documentation (Local Manager install)
+* Add parameters to `package_config.ini` to customize the HTTP consumer
+* Add parameters to `package_config.ini` to enable/disable individual consumers
 
 ## Building the Code
 
 ### Prerequisites
 
-This code has been build on a Linux machine, but it will work on any variant. 
+This project has been built on Linux; it should work on other platforms with Docker.
 
-* You need ioxclient to be installed and in your path. Download ioxlcient from here: https://developer.cisco.com/docs/iox/iox-resource-downloads/
-* You will need Docker to be installed on the build computer.
-* You will need Docker to be able to use buildx components and cross-compile if you are building on non-ARM computer, such as x86_64.
+* **ioxclient** installed and in your `PATH`. Download from [Cisco IOx resource downloads](https://developer.cisco.com/docs/iox/iox-resource-downloads/).
+* **Docker** (tested with Docker 29.x). Install [Docker Buildx](https://docs.docker.com/build/buildx/) if you build on a non-ARM host (for example x86_64).
+
+On x86_64 build hosts, use an explicit platform:
+
+```bash
+docker buildx build --platform linux/arm64 -t iox_aarch64_gps:latest .
+```
+
+Or run `./build.sh`, which passes `--platform linux/arm64` to `docker build`.
+
+### Version numbers
+
+* `VERSION` is the source of truth for the tarball name (`iox_aarch64_gps-<version>.tar.gz`).
+* `build.sh` updates `package.yaml` to match `VERSION` on every build.
+* Set `AUTO_INC_VERSION=1` in `build.sh` to bump the patch segment of `VERSION` automatically before each build (default is `0`).
+
+```bash
+./build.sh
+```
+
+Produces `iox_aarch64_gps-0.10.tar.gz` when `VERSION` is `0.10`.
+
+## Configuration
+
+At runtime, IOx sets `CAF_APP_CONFIG_FILE` to the app configuration file (typically derived from `package_config.ini`). `startup.sh` loads keys from that file into the environment unless already set.
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `IR_GPS` | IOx device mapping / `run-opts` | Path to the GPS NMEA device (for example `/dev/ttyNMEA0`) |
+| `CAF_SYSTEM_SERIAL_ID` | IOx | Router serial number (used in topics and HTTP URL) |
+| `CAF_APP_LOG_DIR` | IOx | Log directory (default `/tmp` if unset) |
+| `LOOP_INTERVAL` | `package_config.ini` | Seconds between GPS reads |
+| `MQTT_*` | `package_config.ini` | Broker, port, credentials, TLS, topic prefix, QoS |
+| `DEBUG_VERBOSE` | `package_config.ini` | `1` for debug logging |
+| `ALWAYS_REPORT` | `package_config.ini` | `1` to publish even without a valid GPS fix |
+
+See [`package_config.ini`](package_config.ini) for defaults.
+
+### Published JSON payload
+
+Consumers publish a JSON object with:
+
+* `timestamp` — router time (milliseconds)
+* `identifier` — router serial number
+* `fix_status` — optional (`success`, `no_fix`, `no_stream`) when `ALWAYS_REPORT=1`
+* `location` — NMEA-derived fields (`lat`, `lon`, `gps_qual`, etc.)
+
+## Privacy and security notes
+
+### MQTT
+
+The default broker is a **public** MQTT service (`broker.hivemq.com`). Anyone who knows your topic (`<MQTT_BASE_TOPIC>/<serial>`) may be able to subscribe to your GPS data. For production, use a private broker, TLS (`MQTT_USE_TLS=1`), and strong credentials.
+
+### HTTP
+
+The HTTP consumer posts JSON to `http://<serial>.requestcatcher.com/gps` over **cleartext HTTP**. Request Catcher is a public demonstration service; do not use it for sensitive or production location data. See [Request Catcher](https://requestcatcher.com/) for terms of use.
+
+MQTT passwords are not written to logs (only `***` when a password is configured).
 
 ## Router prerequisites
 
-* A Cisco router with a cellular [Pluggable Interface Module (PIM)](https://www.cisco.com/c/en/us/products/collateral/networking/industrial-routers-gateways/pim-industrial-iot-routing-portfolio-so.html) with GPS support. GPS will work independently of the cellular radio, it does not need cellular signal, a SIM card installed, or even the cellular antenna connected.
-* IOx needs to be configured (including DHCP pool, etc...). Check a [configuration guide](https://www.cisco.com/c/en/us/td/docs/routers/access/IR1800/software/b-cisco-ir1800-scg.html) if needed.
-* The PIM module [must be configured to have GPS enabled](https://www.cisco.com/c/en/us/td/docs/routers/iot-antennas/cellular-pluggable-modules/b-cellular-pluggable-interface-module-configuration-guide/m-configuring-gps.html)
-* A GPS antenna must be connected - PIM modules do provide a DC bias therefore amplified GPS antenna are supported and preferred.
-* Gateway needs internet access to publish GPS data to the MQTT broker.
+* A Cisco router with a cellular [Pluggable Interface Module (PIM)](https://www.cisco.com/c/en/us/products/collateral/networking/industrial-routers-gateways/pim-industrial-iot-routing-portfolio-so.html) with GPS support. GPS works independently of the cellular radio; it does not require cellular signal, a SIM card, or the cellular antenna.
+* IOx configured (including DHCP pool, etc.). See the [IR1800 software configuration guide](https://www.cisco.com/c/en/us/td/docs/routers/access/IR1800/software/b-cisco-ir1800-scg.html) if needed.
+* The PIM [must have GPS enabled](https://www.cisco.com/c/en/us/td/docs/routers/iot-antennas/cellular-pluggable-modules/b-cellular-pluggable-interface-module-configuration-guide/m-configuring-gps.html).
+* A GPS antenna connected (PIM modules provide DC bias; amplified antennas are supported and preferred).
+* Internet access to reach the MQTT broker and HTTP endpoint.
 
 ## IOx app installation with CLI
 
-For example on a Cisco IR1800 one can use this app in CLI mode. First download the IOx app on the router bootflash using your favourite method.
+For example on a Cisco IR1800, copy the package to bootflash:
 
-For example using SCP:
-
-`router# copy scp://user@192.168.2.3/cisco/iox_aarch64_gps/iox_aarch64_gps-0.7.tar.gz bootflash:`
+```text
+router# copy scp://user@192.168.2.3/cisco/iox_aarch64_gps/iox_aarch64_gps-0.10.tar.gz bootflash:
+```
 
 Install the app in exec mode:
 
-`router# app-hosting install appid gps package flash:iox_aarch64_gps-0.7.tar.gz`
+```text
+router# app-hosting install appid gps package flash:iox_aarch64_gps-0.10.tar.gz
+```
 
-In configuration mode enter the app parameters:
+In configuration mode, set app parameters:
 
 ```sh
 app-hosting appid gps
@@ -64,17 +124,17 @@ app-hosting appid gps
     run-opts 3 "--device /dev/ttyNMEA0:/dev/ttyNMEA0"
 ```
 
-Lastly in exec mode, activate, and start the app:
+Activate and start in exec mode:
 
 ```sh
 router# app-hosting activate appid gps
 router# app-hosting start appid gps
 ```
 
-Verify if the app is running, should be like this:
+Verify:
 
 ```sh
-router# sh app-hosting list
+router# show app-hosting list
 App id                                   State
 ---------------------------------------------------------
 gps                                      RUNNING
@@ -82,11 +142,11 @@ gps                                      RUNNING
 
 ## IOx app upgrade with CLI
 
-Once you have changed your code and downloaded a new version on your app on the router flash, this can be easily upgraded the the new version with one single line:
+```text
+router# app-hosting upgrade appid gps package flash:iox_aarch64_gps-0.10.tar.gz
+```
 
-`router# app-hosting upgrade appid gps package flash:iox_aarch64_gps-0.7.tar.gz`
-
-This will stop the app, upgrade the package, activate and start the app. This operation will take a couple of minutes so be patient and look for the console message confirmation that will look like this:
+Wait for confirmation, for example:
 
 ```sh
 Jul  5 14:28:51.019: %IOXCAF-6-UPGRADE_MSG: R0/0: ioxman: app-hosting: gps: Upgraded Successfully
@@ -94,49 +154,36 @@ Jul  5 14:28:51.019: %IOXCAF-6-UPGRADE_MSG: R0/0: ioxman: app-hosting: gps: Upgr
 
 ## IOx app installation with Local Manager
 
-TBD
+See the [Cisco IR1800 software configuration guide](https://www.cisco.com/c/en/us/td/docs/routers/access/IR1800/software/b-cisco-ir1800-scg.html) for IOx app deployment steps in Local Manager.
 
 ## Getting the GPS coordinates
 
 ### With MQTT
 
-If the MQTT consumer is enabled, the app will publish the data with MQTT to a public MQTT broker.
+The app publishes to the configured MQTT broker. You can verify with an MQTT client or the [HiveMQ WebSocket client](https://www.hivemq.com/demos/websocket-client/).
 
-You can check the published by connecting to this broker using an MQTT client, or a web based version such as: https://www.hivemq.com/demos/websocket-client/
+1. Connect to the broker (default public broker if unchanged).
+2. Subscribe to topic `csco/ir1800/<serial>` (replace `<serial>` with your router serial from `show license udi`).
 
-Steps to subscribe to your data stream are:
-
-1. Leave everything by default and click on the "Connect" button. 
-1. The red dot should become green and say "connected"
-1. In "Subscriptions" click "Add New Topic Subscription"
-1. As a topic enter `csco/ir1800/<serial>` where `<serial>` is your router serial nomber. For instance "`csco/ir1800/FCW2445P8JC`". You can find your serial number with the CLI command "`show license udi`"
-1. Click the "Subscribe" button 
-
-Here how it should look like:
+Example:
 
 <img src="images/hivemq-client-animated-screenshot.gif" width=400>
 
 ### With HTTP
 
-If the HTTP consumer is enabled, the app will publish the data with HTTP to a public website.
-
-To see the GPS coordinated go to `https://<serial>.requestcatcher.com/` where `<serial>` is your router serial number.  (for example: `https://fcw2445p8jc.requestcatcher.com/`)
-
-This should look like this:
+The app POSTs to `http://<serial>.requestcatcher.com/gps`. View captured requests at `https://<serial>.requestcatcher.com/` (for example `https://fcw2445p8jc.requestcatcher.com/`). Note: posts use HTTP; the web viewer may use HTTPS.
 
 <img src="images/requestcatcher-screeshot.png" width=400>
 
 ## Adding your own consumer
 
-Say you want to export data using another method not provider by this app: you're in luck, we have made that super easy! 
+To export data with another protocol:
 
-Steps are as follow:
+1. Write a `threading.Thread` subclass that pops from its queue and publishes.
+2. Register a dedicated queue in `__init__` with `q.create_new_queue(self.qname, QUEUE_SIZE)`.
+3. Instantiate the thread in `__main__` and call `start()`.
 
-1. You need to write your own class that will be responsible to pull data from the queue and publish it to the destination and method of your choice
-2. The class will need to register with the queues so that new data points are being publish in your class dedicated queue
-3. The class will need to be instanciated in the `__main__` section.
-
-For example, let's create a new class called "Acme" to publish data somewere. Let's create the class, initialize the basic function and register ourselves in the queue management system:
+Example skeleton:
 
 ````python
 class ConsumerAcmeThread(threading.Thread):
@@ -150,18 +197,18 @@ class ConsumerAcmeThread(threading.Thread):
         return
 ````
 
-Create a new method called `run()` that will monitor the queue, and every time there is data in the queue, take it out and publish it. The publishing itself is outside the scope of this explanation, but all you have to to is to take the string `locationData` and publish it to the destination of your choice.
-
 ```python
     def run(self):
         while True:
             if q.len(self.qname) > 0:
-                locationData = q.pop(self.qname)
-                // push locationData where you want
+                queue_item = q.pop(self.qname)
+                if should_publish(queue_item):
+                    payload = build_publish_payload(queue_item)
+                    # push payload where you want
             time.sleep(1)
         return
-  ```
+```
 
-## Credits 
+## Credits
 
-This code is based on an initial work done by Kevin Holcomb (Cisco).
+This code is based on initial work by Kevin Holcomb (Cisco).

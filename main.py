@@ -6,26 +6,56 @@ import os
 import logging
 import threading
 import requests
-from collections import deque 
+import sys
+from collections import deque
 
-from   logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler
 
-# total amount of GPS position we can store when publishing 
+# total amount of GPS position we can store when publishing
 # is not possible (ie: because of network outage)
 QUEUE_SIZE = 100
+
+ALWAYS_REPORT = 0
+sn = None
+logger = None
+
+
+def should_publish(queue_item):
+    if not queue_item:
+        return False
+    if ALWAYS_REPORT:
+        return True
+    location = queue_item.get('location')
+    if location is None:
+        return False
+    return location.get('gps_qual', 0) != 0
+
+
+def build_publish_payload(queue_item):
+    payload = {
+        'timestamp': int(time.time() * 1000),
+        'identifier': sn,
+    }
+    if 'fix_status' in queue_item:
+        payload['fix_status'] = queue_item['fix_status']
+    location = queue_item.get('location')
+    if location is not None:
+        payload['location'] = location
+    return payload
+
 
 '''
     This class is responsible to manage multiple queues.
     Each queue will hold data to be sent by one or multiple consumers.
     Each consumer will consome from its queue.
     Producer will produce in all queues.
-    This allows fully asynchronous operation as each consumer will 
+    This allows fully asynchronous operation as each consumer will
     consume and retry at its own rate.
 '''
 class dequeManager:
     def __init__(self):
         self.deqList = {}
-    # returns all elements in all queues 
+    # returns all elements in all queues
     def dumpall(self):
         return(self.deqList)
     # create a new q with name qname and max length maxlen
@@ -62,7 +92,7 @@ def ReqLocation (ser):
 
     logger.debug('Looking for location information')
 
-    # move pointer to end of file to have fresh data 
+    # move pointer to end of file to have fresh data
     # seek() cannot be used as /dev/ttyNMEA0 will be non-seekable
     # will use read to discard all data and get fresh one
     ser.read()
@@ -89,8 +119,8 @@ def ReqLocation (ser):
                         tempPayload = {'gps_qual': gps_qual, 'num_sats': num_sats}
                     logger.debug('Received NMEA location data: {}'.format(tempPayload))
                     return tempPayload
-            except:
-                    logger.debug('NMEA stream parse error')
+            except Exception:
+                    logger.debug('NMEA stream parse error', exc_info=True)
     logger.debug('Failed to receive location data; giving up')
     return None
 
@@ -150,14 +180,10 @@ class ConsumerMQTTThread(threading.Thread):
     def run(self):
         while True:
             if q.len(self.qname) > 0:
-                locationData = q.pop(self.qname)
-                logger.debug('Consuming {} from queue'.format(str(locationData)))
-                timestamp = int(time.time() * 1000)
-                tempPayload = {}
-                tempPayload['timestamp'] = timestamp
-                tempPayload['identifier'] = sn
-                if (locationData.get('gps_qual', 0) !=0 or ALWAYS_REPORT):
-                    tempPayload['location'] = locationData
+                queue_item = q.pop(self.qname)
+                logger.debug('Consuming {} from queue'.format(str(queue_item)))
+                if should_publish(queue_item):
+                    tempPayload = build_publish_payload(queue_item)
                     tempJSON = json.dumps(tempPayload, indent=4)
                     logger.debug('Publishing message from QUEUE -> MQTT')
                     mqttClient.publish(topic,tempJSON,qos=MQTT_QOS)
@@ -178,20 +204,18 @@ class ConsumerHTTPThread(threading.Thread):
     def run(self):
         while True:
             if q.len(self.qname) > 0:
-                locationData = q.pop(self.qname)
-                logger.debug('Consuming {} from queue'.format(str(locationData)))
-                timestamp = int(time.time() * 1000)
-                tempPayload = {}
-                tempPayload['timestamp'] = timestamp
-                tempPayload['identifier'] = sn
-                if (locationData.get('gps_qual', 0) !=0 or ALWAYS_REPORT):
-                    tempPayload['location'] = locationData
+                queue_item = q.pop(self.qname)
+                logger.debug('Consuming {} from queue'.format(str(queue_item)))
+                if should_publish(queue_item):
+                    tempPayload = build_publish_payload(queue_item)
                     tempJSON = json.dumps(tempPayload, indent=4)
                     url = 'http://'+sn+'.requestcatcher.com/gps'
                     logger.debug('Publishing message to HTTP: {}'.format(url))
-                    x = requests.post(url, data=tempJSON)
-                    logger.debug(x.text)
-                    # mqttClient.publish(topic,tempJSON,qos=MQTT_QOS)
+                    try:
+                        response = requests.post(url, data=tempJSON, timeout=(5, 30))
+                        logger.debug(response.text)
+                    except requests.RequestException:
+                        logger.debug('HTTP publish failed', exc_info=True)
             time.sleep(1)
         return
 
@@ -231,6 +255,8 @@ if __name__ == '__main__':
     sn = os.getenv('CAF_SYSTEM_SERIAL_ID')
     topic = MQTT_BASE_TOPIC + "/" + sn
 
+    mqtt_password_log = '***' if MQTT_PASSWORD else ''
+
     logger.info('-------------------------------------------')
     logger.info('CONFIGURATION:')
     logger.info("ROUTER SERIAL NUM: %s", sn)
@@ -239,12 +265,16 @@ if __name__ == '__main__':
     logger.info("MQTT_BROKER: %s", MQTT_BROKER)
     logger.info("MQTT_PORT: %d", MQTT_PORT)
     logger.info("MQTT_USERNAME: %s", MQTT_USERNAME)
-    logger.info("MQTT_PASSWORD: %s", MQTT_PASSWORD)
+    logger.info("MQTT_PASSWORD: %s", mqtt_password_log)
     logger.info("MQTT_USE_TLS: %d", MQTT_USE_TLS)
     logger.info("MQTT_QOS: %d", MQTT_QOS)
     logger.info("MQTT_TOPIC: %s", topic)
     logger.info("DEBUG_VERBOSE: %d", DEBUG_VERBOSE)
     logger.info("ALWAYS_REPORT: %d", ALWAYS_REPORT)
+
+    if not IR_GPS:
+        logger.error('IR_GPS environment variable is not set')
+        sys.exit(1)
 
     # mqttClient = paho.Client()
     mqttClient = paho.Client(paho.CallbackAPIVersion.VERSION2)
@@ -262,15 +292,18 @@ if __name__ == '__main__':
             logger.debug('Attempting to connect to MQTT data broker.')
             mqttClient.connect(MQTT_BROKER, MQTT_PORT)
             mqttSuccess = True
-        except:
-            logger.debug('Having trouble connecting to MQTT data broker.  Will try again.')
+        except Exception:
+            logger.debug('Having trouble connecting to MQTT data broker.  Will try again.', exc_info=True)
             time.sleep(5)
 
     # start the Paho MQTT pub/sub main process
     mqttClient.loop_start()
 
-    # need to add error handling
-    gpsser = open(IR_GPS, "r", encoding='utf-8')
+    try:
+        gpsser = open(IR_GPS, "r", encoding='utf-8')
+    except OSError:
+        logger.error('Failed to open IR_GPS device: %s', IR_GPS, exc_info=True)
+        sys.exit(1)
 
     # Instantiate the multi queue management
     q = dequeManager()
@@ -282,7 +315,7 @@ if __name__ == '__main__':
     p = ProducerThread(name='producer')
     c = ConsumerMQTTThread(name='consumer_mqtt')
     h = ConsumerHTTPThread(name='consumer_http')
-    
+
     p.start()
     c.start()
     h.start()

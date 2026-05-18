@@ -1,18 +1,24 @@
-FROM arm64v8/alpine:3.15 AS build-stage
+FROM arm64v8/alpine:3.21 AS build-stage
+
+LABEL org.opencontainers.image.version="0.10"
 
 COPY requirements.txt /requirements.txt
 
-RUN	apk update && \
-    	apk add python3 py3-pip && \
-	pip3 install -r requirements.txt && \
-	rm -rf /usr/lib/python3.9/site-packages/pip*
+RUN apk add --no-cache python3 py3-pip && \
+    python3 -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir -r /requirements.txt && \
+    mkdir -p /python_pkgs && \
+    cp -a /venv/lib/python3.*/site-packages/. /python_pkgs/
 
-FROM arm64v8/alpine:3.15 AS prod-stage
+FROM arm64v8/alpine:3.21 AS prod-stage
 
-RUN     apk update && \
-        apk add --no-cache python3
+LABEL org.opencontainers.image.version="0.10"
 
-COPY --from=build-stage /usr/lib/python3.9/site-packages /usr/lib/python3.9/site-packages
+RUN apk add --no-cache python3
+
+ENV PYTHONPATH=/python_pkgs
+
+COPY --from=build-stage /python_pkgs /python_pkgs
 
 COPY startup.sh /startup.sh
 RUN chmod 755 /startup.sh
@@ -20,4 +26,4 @@ RUN chmod 755 /startup.sh
 COPY main.py /main.py
 RUN chmod 755 /main.py
 
-CMD ". ./startup.sh"
+CMD ["/bin/sh", "/startup.sh"]
